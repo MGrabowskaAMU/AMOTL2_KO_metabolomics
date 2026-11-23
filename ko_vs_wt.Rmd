@@ -35,7 +35,7 @@ The data used in this analysis were obtained from the `filtered area normalized`
 
 ```{r message = FALSE, warning = FALSE}
 # import metabolite abundance data (normalized) 
-hmc_df <- read_excel("data/HMC-25-047_Lalowski_20052025_TA.xls",
+hmc_df <- read_excel("../data/HMC-25-047_Lalowski_20052025_TA.xls",
                       sheet = "Filtered area normalized",
                       skip = 14) %>% 
             dplyr::select(Compounds, matches("KO|WT"))
@@ -95,14 +95,38 @@ partially_missing <- hmc_df %>%
 hmc_df <- hmc_df %>% 
             dplyr::filter(!(Compounds %in% partially_missing))
 
+# reshape
+hmc_df_t <- hmc_df |> 
+  tidyr::pivot_longer(
+    cols = -Compounds,
+    names_to = "sample",
+    values_to = "abundance"
+  ) |> 
+  tidyr::pivot_wider(
+    names_from = Compounds,
+    values_from = abundance
+  )
+
 # Impute remaining missing values using missForest algorithm
-hmc_df_imp <- missRanger(hmc_df, 
-                          formula = . ~ . - Compounds, # using all variables except for Compounds to perform imputation
+hmc_df_t_imp <- missRanger(hmc_df_t, 
+                          formula = . ~ . - sample, # using all variables except for sample to perform imputation
                           pmm.k = 5,
                           seed = 42, # ensuring imputation is replicable
                           verbose = 0) # see ?missRanger for the advantages of doing this
 # I kept all function defaults except pmm.k, which I set to 5 as was done in the missRanger vignette
 # And I also set the seed to 42
+
+# reshape back to un-transposed form
+hmc_df_imp <- hmc_df_t_imp |> 
+  tidyr::pivot_longer(
+    cols = -sample,
+    names_to = "Compounds",
+    values_to = "abundance"
+  ) |> 
+  tidyr::pivot_wider(
+    names_from = sample,
+    values_from = abundance
+  )
 
 # are there any 0 values?
 # apply(hmc_df_imp, 2, function(x) sum(x == 0))
@@ -360,3 +384,21 @@ topTable(efit, coef = "Interaction",
     caption = "Interaction effect"
   )
 ```
+
+### Additional Work
+
+```{r}
+# normalized values for alpha-kg and succinate per sample
+alpha_k_succ_df <- limma_mat %>% 
+  data.frame() %>% 
+  tibble::rownames_to_column("Compounds") %>% 
+  tidyr::pivot_longer(cols = -Compounds,
+                      names_to = "sample",
+                      values_to = "log2_abundance") %>% 
+  dplyr::mutate(sample = str_remove(sample, "^X")) %>% 
+  dplyr::inner_join(metadata, join_by(sample)) %>% 
+  dplyr::filter(Compounds %in% c("ALPHA-KETOGLUTARIC ACID", "Succinic acid"))
+
+# write_csv(alpha_k_succ_df, "results/amotl2_ko_alpha_k_succ_df_AB_121825.csv")
+```
+
